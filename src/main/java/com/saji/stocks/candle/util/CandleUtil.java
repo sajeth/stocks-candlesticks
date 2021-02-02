@@ -131,6 +131,7 @@ public class CandleUtil {
     public static final Predicate<List<Candle>> BULLISH_3_METHOD_FORMATION = (Candles) -> {
         return false;
     };
+
     public static final Predicate<List<Candle>> BULLISH_HARAMI = (candles) -> {
         Candle last = candles.get(candles.size() - 1);
         Candle lastBefore = candles.get(candles.size() - 2);
@@ -171,31 +172,41 @@ public class CandleUtil {
                 !(lastBefore.getOpen().compareTo(last.getOpen()) > 0) &&
                 !(lastBefore.getClose().compareTo(last.getClose()) > 0);
     };
-    public static final Predicate<Candle> BEARISH_PIN = Candle -> (DOJI.negate()).and(BEARISH).and(LONG_UPPER_SHADOW)
-            .test(Candle);
-    public static final Predicate<Candle> BULLISH_PIN = Candle -> (DOJI.negate()).and(BULLISH).and(LONG_LOWER_SHADOW)
-            .test(Candle);
-    public static final Predicate<Candle> BULLISH_MARUBOZU = Candle -> MARUBOZU.and(BULLISH).test(Candle);
-    public static final Predicate<Candle> BEARISH_MARUBOZU = Candle -> MARUBOZU.and(BEARISH).test(Candle);
-    public static final Predicate<List<Candle>> SHORT_LINE = LONG_LINE.negate();
     private static final Predicate<Candle> UPPER_SHADOW = Candlestick -> Candlestick.getHigh()
             .compareTo(Candlestick.getOpen().max(Candlestick.getClose())) > 0;
     private static final Predicate<Candle> LOWER_SHADOW = (
             Candlestick) -> Candlestick.getOpen().min(Candlestick.getClose()).compareTo(Candlestick.getLow()) > 0;
-    public static final Predicate<Candle> DRAGONFLY_DOJI = Candle -> DOJI.and(LOWER_SHADOW).and(UPPER_SHADOW.negate())
-            .test(Candle);
-    public static final Predicate<Candle> GRAVESTONE_DOJI = Candle -> DOJI.and(UPPER_SHADOW).and(LOWER_SHADOW.negate())
-            .test(Candle);
-    private static final Predicate<Candle> ANY_SHADOW = UPPER_SHADOW.or(LOWER_SHADOW);
     private static final Predicate<Candle> ALL_SHADOW = UPPER_SHADOW.and(LOWER_SHADOW);
     public static final Predicate<Candle> LONG_LOWER_SHADOW = (Candle) -> ALL_SHADOW
             .and(val -> body(val).multiply(BigDecimal.valueOf(3)).compareTo(tail(val)) < 0).test(Candle);
     public static final Predicate<Candle> LONG_UPPER_SHADOW = (Candle) -> ALL_SHADOW
             .and(val -> body(val).multiply(BigDecimal.valueOf(3)).compareTo(wick(val)) < 0).test(Candle);
+
+    public static final Predicate<Candle> BEARISH_PIN = Candle -> (DOJI.negate()).and(BEARISH).and(LONG_UPPER_SHADOW)
+            .test(Candle);
+    public static final Predicate<Candle> BULLISH_PIN = Candle -> (DOJI.negate()).and(BULLISH).and(LONG_LOWER_SHADOW)
+            .test(Candle);
+
+    private static final Predicate<Candle> ANY_SHADOW = UPPER_SHADOW.or(LOWER_SHADOW);
     private static final Predicate<Candle> NO_SHADOW = ANY_SHADOW.negate();
+
     public static final Predicate<Candle> MARUBOZU = (Candle) -> {
         return NO_SHADOW.and(DOJI.negate()).test(Candle);
     };
+    public static final Predicate<Candle> BULLISH_MARUBOZU = Candle -> MARUBOZU.and(BULLISH).test(Candle);
+    public static final Predicate<Candle> BEARISH_MARUBOZU = Candle -> MARUBOZU.and(BEARISH).test(Candle);
+    public static final Predicate<List<Candle>> LONG_LINE = (Candles) -> {
+        BigDecimal avg = averageDistance(Candles, 25);
+        final Candle ohlc = Candles.get(0);
+        return size(ohlc).compareTo(avg.multiply(BigDecimal.valueOf(0.7))) >= 0;
+    };
+    public static final Predicate<List<Candle>> SHORT_LINE = LONG_LINE.negate();
+
+    public static final Predicate<Candle> DRAGONFLY_DOJI = Candle -> DOJI.and(LOWER_SHADOW).and(UPPER_SHADOW.negate())
+            .test(Candle);
+    public static final Predicate<Candle> GRAVESTONE_DOJI = Candle -> DOJI.and(UPPER_SHADOW).and(LOWER_SHADOW.negate())
+            .test(Candle);
+
     private static final Map<String, BigDecimal> CACHE_RESULT = new LinkedHashMap<String, BigDecimal>(21, .75F, true) {
 
         @Override
@@ -203,11 +214,7 @@ public class CandleUtil {
             return size() > 20;
         }
     };
-    public static final Predicate<List<Candle>> LONG_LINE = (Candles) -> {
-        BigDecimal avg = averageDistance(Candles, 25);
-        final Candle ohlc = Candles.get(0);
-        return size(ohlc).compareTo(avg.multiply(BigDecimal.valueOf(0.7))) >= 0;
-    };
+
     public static final Predicate<List<Candle>> LONG_Candle = (Candles) -> {
         final int avgPeriod = 10;
 
