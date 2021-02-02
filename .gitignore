@@ -17,12 +17,12 @@
 *.rar
 *.lst
 *.txt
-*.class
-.idea/*
+.idea/
+target.nosync/
 
 *.iml
 compiler.xml
 workspace.xml
-
+stocks-candlesticks.iml
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
