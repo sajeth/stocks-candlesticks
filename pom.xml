@@ -6,7 +6,7 @@
 
     <groupId>com.saji.stocks.candle</groupId>
     <artifactId>stocks-candlesticks</artifactId>
-    <version>2.0.0</version>
+    <version>4.0.0</version>
     <packaging>jar</packaging>
     <name>stocks-candlesticks</name>
     <parent>
@@ -14,4 +14,30 @@
         <artifactId>stocks-parent</artifactId>
         <version>0.0.1</version>
     </parent>
+    <dependencies>
+        <dependency>
+            <groupId>com.saji.stocks.analysis</groupId>
+            <artifactId>stocks-analysis</artifactId>
+            <version>${stocks.analysis.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.saji.stocks.finance</groupId>
+            <artifactId>stocks-finance</artifactId>
+            <version>${stocks.finance.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-annotations</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+    </dependencies>
 </project>

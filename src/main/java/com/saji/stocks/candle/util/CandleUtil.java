@@ -1,383 +1,93 @@
 package com.saji.stocks.candle.util;
 
-
-import com.saji.stocks.candle.pojo.Candle;
+import com.saji.stocks.candle.lib.FivePredicate;
+import com.saji.stocks.candle.lib.TriPredicate;
+import com.saji.stocks.finance.yahoo.histquotes.HistoricalQuote;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 public class CandleUtil {
-    public static final Predicate<Candle> BULLISH = Candlestick -> Candlestick.getClose()
-            .compareTo(Candlestick.getOpen()) > 0;
+    private static Function<HistoricalQuote, BigDecimal> head = val -> val.getHigh().subtract(val.getOpen().max(val.getClose()));
+    private static Function<HistoricalQuote, BigDecimal> tail = val -> val.getOpen().min(val.getClose()).subtract(val.getLow());
+    private static Function<HistoricalQuote, BigDecimal> body = val -> val.getOpen().subtract(val.getClose()).abs();
 
-    public static final Predicate<Candle> BEARISH = Candlestick -> Candlestick.getOpen()
-            .compareTo(Candlestick.getClose()) > 0;
-    //	private static final Predicate<Candle> ALL_SHADOW_LARGER_THAN_BODY = UPPER_SHADOW_LARGER_THAN_BODY
-//			.and(LOWER_SHADOW_LARGER_THAN_BODY);
-    public static final Predicate<List<Candle>> THREE_WHITE_SOLDIERS = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle middle = candles.get(candles.size() - 2);
-        Candle first = candles.get(candles.size() - 3);
+    private static final BiPredicate<BigDecimal, BigDecimal> IS_FIRST_GREATER = (val1, val2) -> val1.compareTo(val2) > 0;
+    private static final BiPredicate<BigDecimal, BigDecimal> IS_FIRST_LESSER = (val1, val2) -> val1.compareTo(val2) < 0;
+    private static final BiPredicate<BigDecimal, BigDecimal> ARE_EQUAL = (val1, val2) -> val1.compareTo(val2) == 0;
+
+    public static final Predicate<HistoricalQuote> BULLISH = val -> val.getClose().compareTo(val.getOpen()) > 0;
+    public static final Predicate<HistoricalQuote> BEARISH = val -> val.getOpen().compareTo(val.getClose()) > 0;
+    private static Predicate<HistoricalQuote> LONG_BODY = val -> body.apply(val).compareTo(tail.apply(val).add(head.apply(val))) > 0;
+    public static final Predicate<HistoricalQuote> LONG_BEARISH_CANDLE = val -> BEARISH.and(LONG_BODY).test(val);
+    public static final Predicate<HistoricalQuote> LONG_BULLISH_CANDLE = val -> BULLISH.and(LONG_BODY).test(val);
+    public static final BiPredicate<HistoricalQuote, HistoricalQuote> BEARISH_BODY_VALIDATION = (val1, val2) -> {
+
+        if (BEARISH.test(val2)) {
+            return !IS_FIRST_GREATER.test(val2.getOpen(), val1.getOpen()) && !IS_FIRST_GREATER.test(val2.getClose(), val1.getClose());
+        } else {
+            return !IS_FIRST_GREATER.test(val2.getClose(), val1.getOpen()) && !IS_FIRST_GREATER.test(val2.getOpen(), val1.getClose());
+        }
+    };
+    public static final BiPredicate<HistoricalQuote, HistoricalQuote> BULLISH_BODY_VALIDATION = (val1, val2) -> {
+
+        if (BULLISH.test(val2)) {
+            return !IS_FIRST_GREATER.test(val2.getOpen(), val1.getOpen()) && !IS_FIRST_GREATER.test(val2.getClose(), val1.getClose());
+        } else {
+            return !IS_FIRST_GREATER.test(val2.getClose(), val1.getOpen()) && !IS_FIRST_GREATER.test(val2.getOpen(), val1.getClose());
+        }
+    };
+
+    public static final Predicate<HistoricalQuote> DOJI = val -> body.apply(val).abs().equals(BigDecimal.ZERO);
+    private static final Predicate<HistoricalQuote> UPPER_SHADOW = val -> IS_FIRST_GREATER.test(head.apply(val), BigDecimal.ZERO);
+    private static final Predicate<HistoricalQuote> LOWER_SHADOW = val -> IS_FIRST_GREATER.test(tail.apply(val), BigDecimal.ZERO);
+    private static final Predicate<HistoricalQuote> EQUAL_SHADOW = val -> ARE_EQUAL.test(head.apply(val), tail.apply(val));
+    public static final Predicate<HistoricalQuote> DRAGONFLY_DOJI = HistoricalQuote -> DOJI.and(LOWER_SHADOW).and(UPPER_SHADOW.negate())
+            .test(HistoricalQuote);
+    public static final Predicate<HistoricalQuote> GRAVESTONE_DOJI = HistoricalQuote -> DOJI.and(UPPER_SHADOW).and(LOWER_SHADOW.negate())
+            .test(HistoricalQuote);
+    public static final Predicate<HistoricalQuote> NEUTRAL_DOJI = (HistoricalQuote) -> {
+        return DOJI.and(EQUAL_SHADOW).and(val -> IS_FIRST_LESSER.test(head.apply(val), (BigDecimal.ONE)))
+                .and(val -> tail.apply(val).compareTo(BigDecimal.ONE) < 0).test(HistoricalQuote);
+    };
+    public static final Predicate<HistoricalQuote> LONG_LEGGED_DOJI = (HistoricalQuote) -> {
+        return DOJI.and(EQUAL_SHADOW).and(val -> head.apply(val).compareTo(BigDecimal.ONE) > 0)
+                .and(val -> tail.apply(val).compareTo(BigDecimal.ONE) > 0).test(HistoricalQuote);
+    };
+    public static final Predicate<HistoricalQuote> ANY_DOJI = (val) -> {
+        return DOJI.or(LONG_LEGGED_DOJI).or(NEUTRAL_DOJI).or(GRAVESTONE_DOJI).or(DRAGONFLY_DOJI).test(val);
+    };
+
+    private static Predicate<HistoricalQuote> SHORT_BODY = val -> !ANY_DOJI.test(val) && body.apply(val).compareTo(tail.apply(val).add(head.apply(val))) < 0;
+    private static Predicate<HistoricalQuote> LONG_WICK = val -> !ANY_DOJI.test(val) && (BigDecimal.valueOf(2L).multiply(body.apply(val))).compareTo(tail.apply(val).add(head.apply(val))) < 0;
+    public static final TriPredicate THREE_WHITE_SOLDIERS = (last, middle, first) -> {
         return !(BULLISH.test(last) || BULLISH.test(middle) || BULLISH.test(first));
     };
-    public static final Predicate<List<Candle>> THREE_BLACK_CROWS = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle middle = candles.get(candles.size() - 2);
-        Candle first = candles.get(candles.size() - 3);
-        return !(BEARISH.test(last) || BEARISH.test(middle) || BEARISH.test(first));
-    };
-    public static final Predicate<List<Candle>> EVENING_DOJI_STAR = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> FALLING_WINDOW = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> MORNING_DOJI_STAR = (Candles) -> {
-        return false;
-    };
+    public static final TriPredicate THREE_BLACK_CROWS = (last, middle, first) -> !(BEARISH.test(last) || BEARISH.test(middle) || BEARISH.test(first));
 
-    public static final Predicate<List<Candle>> ON_NECKLINE = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> TWO_BEARISH_GAPPING = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> THREE_BEARISH_CROWS = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> THREE_BULLISH_SOLDIERS = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> THREE_LINE_STRIKE = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> TWEEZER_BOTTOMS = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> TWEEZER_TOPS = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> DOJI_STAR = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> RISING_WINDOW = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> EVENING_STAR = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle middle = candles.get(candles.size() - 2);
-        Candle first = candles.get(candles.size() - 3);
-        return BEARISH.test(last) && BULLISH.test(first) &&
-                (middle.getOpen().compareTo(last.getOpen()) > 0
-                        || middle.getClose().compareTo(last.getOpen()) > 0);
-    };
-    public static final Predicate<List<Candle>> MORNING_STAR = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle middle = candles.get(candles.size() - 2);
-        Candle first = candles.get(candles.size() - 3);
-        return BULLISH.test(last) && BEARISH.test(first) &&
-                (middle.getOpen().compareTo(last.getOpen()) < 0
-                        || middle.getClose().compareTo(last.getOpen()) < 0);
-    };
-    public static final Predicate<List<Candle>> ABANDONED_BABY = (Candles) -> {
-        return false;
-    };
+    public static final TriPredicate EVENING_DOJI_STAR = (last, middle, first) -> BEARISH.test(last) && BULLISH.test(first) && (ANY_DOJI).test(middle) && IS_FIRST_LESSER.test(last.getOpen(), first.getClose());
 
-    public static final Predicate<Candle> DOJI = (Candle) -> {
-        return body(Candle).abs().equals(BigDecimal.valueOf(0));
-    };
+    public static final TriPredicate MORNING_DOJI_STAR = (last, middle, first) -> BULLISH.test(last) && BEARISH.test(first) && ANY_DOJI.test(middle) && IS_FIRST_GREATER.test(first.getOpen(), middle.getHigh());
 
-    public static final Predicate<List<Candle>> HANGING_MAN = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> HAMMER = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> INVERTED_BEARISH_HAMMER = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> INVERTED_HAMMER = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> SHOOTING_STAR = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> BULLISH_BODY = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> SHAVEN_BOTTOM = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> SHAVEN_HEAD = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> BEARISH_HARAMI = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle lastBefore = candles.get(candles.size() - 2);
-        return BEARISH.test(last) && BULLISH.test(lastBefore)
-                && last.getClose().compareTo(lastBefore.getOpen()) > 0
-                && last.getOpen().compareTo(lastBefore.getClose()) > 0;
-    };
-    public static final Predicate<List<Candle>> BEARISH_HARAMI_CROSS = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> BEARISH_3_METHOD_FORMATION = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> BULLISH_3_METHOD_FORMATION = (Candles) -> {
-        return false;
-    };
+    public static final TriPredicate ON_NECKLINE = (last, middle, first) -> (BEARISH.test(last) && BULLISH.test(middle) && !IS_FIRST_GREATER.test(middle.getClose(), last.getClose())) || (BEARISH.test(middle) && BULLISH.test(first) && !IS_FIRST_GREATER.test(first.getClose(), middle.getClose()));
+    public static final TriPredicate FALLING_WINDOW = (last, middle, first) -> IS_FIRST_GREATER.test(first.getLow(), middle.getHigh()) || IS_FIRST_GREATER.test(middle.getLow(), first.getHigh());
+    public static final TriPredicate BEARISH_HARAMI = (last, middle, first) -> (BEARISH.test(last) && BULLISH.test(middle) && !IS_FIRST_GREATER.test(middle.getHigh(), last.getOpen())
+            && !IS_FIRST_GREATER.test(middle.getLow(), last.getClose()) ||
+            (BEARISH.test(middle) && BULLISH.test(first)
+                    && !IS_FIRST_GREATER.test(first.getHigh(), middle.getOpen())
+                    && !IS_FIRST_GREATER.test(first.getLow(), middle.getClose())));
+    public static final TriPredicate BULLISH_HARAMI = (last, middle, first) -> (BULLISH.test(last) && BEARISH.test(middle) && !IS_FIRST_GREATER.test(middle.getHigh(), last.getClose())
+            && !IS_FIRST_GREATER.test(middle.getLow(), last.getClose()) ||
+            (BULLISH.test(middle) && BEARISH.test(first)
+                    && !IS_FIRST_GREATER.test(first.getHigh(), middle.getClose())
+                    && !IS_FIRST_GREATER.test(first.getLow(), middle.getOpen())));
+    public static final BiPredicate<HistoricalQuote, HistoricalQuote> BEARISH_HARAMI_CROSS = (middle, first) -> LONG_BULLISH_CANDLE.test(middle) && ANY_DOJI.test(first) && !IS_FIRST_LESSER.test(first.getLow(), middle.getOpen()) && !IS_FIRST_GREATER.test(first.getHigh(), middle.getClose());
+    public static final BiPredicate<HistoricalQuote, HistoricalQuote> BULLISH_HARAMI_CROSS = (middle, first) -> LONG_BEARISH_CANDLE.test(middle) && ANY_DOJI.test(first) && !IS_FIRST_LESSER.test(first.getLow(), middle.getClose()) && !IS_FIRST_GREATER.test(first.getHigh(), middle.getOpen());
+    public static final BiPredicate<HistoricalQuote, HistoricalQuote> BEARISH_PIN = (middle, first) -> BULLISH.test(middle) && LONG_BODY.test(middle) && BEARISH.test(first) && IS_FIRST_GREATER.test(first.getHigh(), middle.getHigh()) && !IS_FIRST_GREATER.test(first.getClose(), middle.getClose()) && IS_FIRST_GREATER.test(first.getLow(), middle.getLow());
+    public static final FivePredicate BEARISH_3_METHOD = (five, four, three, two, one) -> BEARISH.test(five) && BEARISH.test(one) && BEARISH_BODY_VALIDATION.test(five, two) && BEARISH_BODY_VALIDATION.test(five, three) && BEARISH_BODY_VALIDATION.test(five, four);
+    public static final FivePredicate BULLISH_3_METHOD = (five, four, three, two, one) -> BULLISH.test(five) && BULLISH.test(one) && BULLISH_BODY_VALIDATION.test(five, two) && BULLISH_BODY_VALIDATION.test(five, three) && BULLISH_BODY_VALIDATION.test(five, four);
 
-    public static final Predicate<List<Candle>> BULLISH_HARAMI = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle lastBefore = candles.get(candles.size() - 2);
-        return BULLISH.test(last) && BEARISH.test(lastBefore)
-                && lastBefore.getClose().compareTo(last.getOpen()) > 0
-                && lastBefore.getOpen().compareTo(last.getClose()) > 0;
-    };
-    public static final Predicate<List<Candle>> BULLISH_HARAMI_CROSS = (Candles) -> {
-        return false;
-    };
-    public static final Predicate<List<Candle>> DARK_CLOUD_COVER = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle lastBefore = candles.get(candles.size() - 2);
-        return BEARISH.test(lastBefore) &&
-                last.getOpen().compareTo(lastBefore.getLow()) < 0;
-    };
 
-    public static final Predicate<List<Candle>> PIERCING_PATTERN = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle lastBefore = candles.get(candles.size() - 2);
-        return BULLISH.test(lastBefore) &&
-                last.getOpen().compareTo(lastBefore.getHigh()) > 0;
-    };
-
-    public static final Predicate<List<Candle>> BEARISH_ENGULFING = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle lastBefore = candles.get(candles.size() - 2);
-        return BULLISH.test(lastBefore) &&
-                BEARISH.test(last) &&
-                !(lastBefore.getOpen().compareTo(last.getOpen()) > 0) &&
-                !(lastBefore.getClose().compareTo(last.getClose()) > 0);
-    };
-    public static final Predicate<List<Candle>> BULLISH_ENGULFING = (candles) -> {
-        Candle last = candles.get(candles.size() - 1);
-        Candle lastBefore = candles.get(candles.size() - 2);
-        return BEARISH.test(lastBefore) &&
-                BULLISH.test(last) &&
-                !(lastBefore.getOpen().compareTo(last.getOpen()) > 0) &&
-                !(lastBefore.getClose().compareTo(last.getClose()) > 0);
-    };
-    private static final Predicate<Candle> UPPER_SHADOW = Candlestick -> Candlestick.getHigh()
-            .compareTo(Candlestick.getOpen().max(Candlestick.getClose())) > 0;
-    private static final Predicate<Candle> LOWER_SHADOW = (
-            Candlestick) -> Candlestick.getOpen().min(Candlestick.getClose()).compareTo(Candlestick.getLow()) > 0;
-    private static final Predicate<Candle> ALL_SHADOW = UPPER_SHADOW.and(LOWER_SHADOW);
-    public static final Predicate<Candle> LONG_LOWER_SHADOW = (Candle) -> ALL_SHADOW
-            .and(val -> body(val).multiply(BigDecimal.valueOf(3)).compareTo(tail(val)) < 0).test(Candle);
-    public static final Predicate<Candle> LONG_UPPER_SHADOW = (Candle) -> ALL_SHADOW
-            .and(val -> body(val).multiply(BigDecimal.valueOf(3)).compareTo(wick(val)) < 0).test(Candle);
-
-    public static final Predicate<Candle> BEARISH_PIN = Candle -> (DOJI.negate()).and(BEARISH).and(LONG_UPPER_SHADOW)
-            .test(Candle);
-    public static final Predicate<Candle> BULLISH_PIN = Candle -> (DOJI.negate()).and(BULLISH).and(LONG_LOWER_SHADOW)
-            .test(Candle);
-
-    private static final Predicate<Candle> ANY_SHADOW = UPPER_SHADOW.or(LOWER_SHADOW);
-    private static final Predicate<Candle> NO_SHADOW = ANY_SHADOW.negate();
-
-    public static final Predicate<Candle> MARUBOZU = (Candle) -> {
-        return NO_SHADOW.and(DOJI.negate()).test(Candle);
-    };
-    public static final Predicate<Candle> BULLISH_MARUBOZU = Candle -> MARUBOZU.and(BULLISH).test(Candle);
-    public static final Predicate<Candle> BEARISH_MARUBOZU = Candle -> MARUBOZU.and(BEARISH).test(Candle);
-    public static final Predicate<List<Candle>> LONG_LINE = (Candles) -> {
-        BigDecimal avg = averageDistance(Candles, 25);
-        final Candle ohlc = Candles.get(0);
-        return size(ohlc).compareTo(avg.multiply(BigDecimal.valueOf(0.7))) >= 0;
-    };
-    public static final Predicate<List<Candle>> SHORT_LINE = LONG_LINE.negate();
-
-    public static final Predicate<Candle> DRAGONFLY_DOJI = Candle -> DOJI.and(LOWER_SHADOW).and(UPPER_SHADOW.negate())
-            .test(Candle);
-    public static final Predicate<Candle> GRAVESTONE_DOJI = Candle -> DOJI.and(UPPER_SHADOW).and(LOWER_SHADOW.negate())
-            .test(Candle);
-
-    private static final Map<String, BigDecimal> CACHE_RESULT = new LinkedHashMap<String, BigDecimal>(21, .75F, true) {
-
-        @Override
-        public boolean removeEldestEntry(Map.Entry<String, BigDecimal> eldest) {
-            return size() > 20;
-        }
-    };
-
-    public static final Predicate<List<Candle>> LONG_Candle = (Candles) -> {
-        final int avgPeriod = 10;
-
-        if (Candles.size() < avgPeriod) {
-            return false;
-        }
-
-        return body(Candles.get(0)).compareTo(averageBody(Candles, avgPeriod).multiply(BigDecimal.valueOf(3))) >= 0;
-    };
-    private static final Predicate<Candle> EQUAL_SHADOW = Candlestick -> Candlestick.getHigh().subtract(max(Candlestick.getOpen(), Candlestick.getClose()))
-            .compareTo(min(Candlestick.getOpen(), Candlestick.getClose()).subtract(Candlestick.getLow())) == 0;
-    public static final Predicate<Candle> NEUTRAL_DOJI = (Candle) -> {
-        return DOJI.and(EQUAL_SHADOW).and(val -> wick(val).compareTo(BigDecimal.valueOf(1)) < 0)
-                .and(val -> tail(val).compareTo(BigDecimal.valueOf(1)) < 0).test(Candle);
-    };
-    public static final Predicate<Candle> LONG_LEGGED_DOJI = (Candle) -> {
-        return DOJI.and(EQUAL_SHADOW).and(val -> wick(val).compareTo(BigDecimal.valueOf(1)) > 0)
-                .and(val -> tail(val).compareTo(BigDecimal.valueOf(1)) > 0).test(Candle);
-    };
-    private static final Predicate<Candle> UPPER_SHADOW_LARGER_THAN_BODY = UPPER_SHADOW.and((Candle) -> {
-        return (Candle.getHigh().subtract(max(Candle.getOpen(), Candle.getClose()))).compareTo(body(Candle)) > 0;
-    });
-    private static final Predicate<Candle> LOWER_SHADOW_LARGER_THAN_BODY = LOWER_SHADOW.and((Candle) -> (min(Candle.getOpen(), Candle.getClose()).subtract(Candle.getLow())).compareTo(body(Candle)) > 0);
-    public static final Predicate<Candle> SPINNING_TOP = (Candle) -> {
-        return LOWER_SHADOW_LARGER_THAN_BODY.and(UPPER_SHADOW_LARGER_THAN_BODY).and(EQUAL_SHADOW).test(Candle);
-    };
-    private static final Predicate<Candle> ANY_SHADOW_LARGER_THAN_BODY = UPPER_SHADOW_LARGER_THAN_BODY
-            .or(LOWER_SHADOW_LARGER_THAN_BODY);
-    private static final Predicate<Candle> NO_SHADOW_LARGER_THAN_BODY = ANY_SHADOW_LARGER_THAN_BODY.negate();
-    public static final Predicate<List<Candle>> LONG_BEARISH_Candle = (Candles) -> {
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░┌┴┐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░└┬┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        return BEARISH.and(ALL_SHADOW).and(NO_SHADOW_LARGER_THAN_BODY).and((e) -> LONG_Candle.test(Candles))
-                .and((t) -> LONG_LINE.test(Candles)).test(Candles.get(0));
-    };
-    public static final Predicate<List<Candle>> BEARISH_Candle = (Candles) -> {
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░┌┴┐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░└┬┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        return BEARISH.and(ALL_SHADOW).and(NO_SHADOW_LARGER_THAN_BODY).and((t) -> LONG_LINE.test(Candles))
-                .and((e) -> LONG_Candle.negate().test(Candles)).test(Candles.get(0));
-    };
-    public static final Predicate<List<Candle>> LONG_BULLISH_Candle = (Candles) -> {
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░┌┴┐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░└┬┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        return BULLISH.and(ALL_SHADOW).and(NO_SHADOW_LARGER_THAN_BODY).and((e) -> LONG_Candle.test(Candles))
-                .and((t) -> LONG_LINE.test(Candles)).test(Candles.get(0));
-    };
-    public static final Predicate<List<Candle>> BULLISH_Candle = (Candles) -> {
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░┌┴┐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░│░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░└┬┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        // ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        return BULLISH.and(ALL_SHADOW).and(NO_SHADOW_LARGER_THAN_BODY).and((t) -> LONG_LINE.test(Candles))
-                .and((e) -> LONG_Candle.negate().test(Candles)).test(Candles.get(0));
-    };
-
-    private static BigDecimal cached(final String method, final List<Candle> Candles, final int period,
-                                     final Supplier<BigDecimal> exec) {
-        String key = method + "_" + Candles.hashCode() + "_" + period;
-        BigDecimal value = CACHE_RESULT.get(key);
-        if (value == null) {
-            value = exec.get();
-            CACHE_RESULT.put(key, value);
-        }
-        return value;
-    }
-
-    public static BigDecimal body(Candle Candlestick) {
-        BigDecimal value;
-        if (BULLISH.test(Candlestick)) {
-            value = Candlestick.getClose().subtract(Candlestick.getOpen());
-        } else if (BEARISH.test(Candlestick)) {
-            value = Candlestick.getOpen().subtract(Candlestick.getClose());
-        } else {
-            value = BigDecimal.valueOf(0L);
-        }
-        return value;
-    }
-
-    public static BigDecimal wick(Candle Candlestick) {
-        return Candlestick.getHigh().subtract(max(Candlestick.getOpen(), Candlestick.getClose()));
-    }
-
-    public static BigDecimal tail(Candle Candlestick) {
-        return min(Candlestick.getOpen(), Candlestick.getClose()).subtract(Candlestick.getLow());
-    }
-
-    private static final BigDecimal max(BigDecimal val1, BigDecimal val2) {
-        return val1.max(val2);
-    }
-
-    private static final BigDecimal min(BigDecimal val1, BigDecimal val2) {
-        return val1.min(val2);
-    }
-
-    private static BigDecimal size(final Candle Candle) {
-        return Candle.getHigh().subtract(Candle.getLow());
-    }
-
-    private static BigDecimal averageBody(List<Candle> candles, int period) {
-        return cached("averageBody", candles, period, () -> {
-            BigDecimal sum = BigDecimal.valueOf(0);
-            for (int i = 0; i < candles.size(); i++) {
-                final Candle ohlc = candles.get(i);
-                sum = sum.add(body(ohlc));
-            }
-
-            return sum.divide(min(BigDecimal.valueOf(candles.size()), BigDecimal.valueOf(period)));
-        });
-    }
-
-    private static BigDecimal averageDistance(List<Candle> list, int period) {
-        return cached("averageDistance", list, period, () -> {
-            double exponent = 2.0 / (period + 1);
-            int start = Math.min(list.size() - 1, period);
-            Candle ohlc = list.get(start);
-            BigDecimal ema = size(ohlc);
-            for (int i = start - 1; i >= 0; i--) {
-                ohlc = list.get(i);
-                ema = size(ohlc).multiply(BigDecimal.valueOf(exponent))
-                        .add(ema.multiply(BigDecimal.valueOf(1 - exponent)));
-            }
-
-            return ema;
-        });
-
-    }
 }

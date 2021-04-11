@@ -1,5 +1,5 @@
 package com.saji.stocks.candle.constants;
 
 public enum Indication {
-    BUY, SELL, REVERSAL, INCONCLUSIVE
+    BULLISH_REVERSAL, BEARISH_REVERSAL, INCONCLUSIVE
 }
